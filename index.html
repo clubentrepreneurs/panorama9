@@ -22,9 +22,25 @@
             background-color: transparent !important;
         }
 
-        /* AJOUT : Le canvas est caché au début pour éviter un flash */
         #renderCanvas.hidden {
             visibility: hidden;
+        }
+
+        /* AJOUT : Style pour le bouton Muet/Non-muet */
+        #muteButton {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 1000;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-family: 'Apex New', sans-serif;
+            font-size: 14px;
+            display: none; /* Caché par défaut, affiché après l'intro */
         }
 
         /* === Styles pour l'animation Lottie d'introduction === */
@@ -34,8 +50,8 @@
             left: 0;
             width: 100%;
             height: 100%;
-            background-color: white; /* ou la couleur de votre fond */
-            z-index: 9999; /* S'assure qu'il est au-dessus de tout */
+            background-color: white;
+            z-index: 9999;
             display: flex;
             justify-content: center;
             align-items: center;
@@ -43,11 +59,10 @@
         }
         #lottie-container.fade-out {
             opacity: 0;
-            /* Empêche les interactions pendant le fade-out */
             pointer-events: none;
         }
 
-        /* === Texte stylisé avec effet bounce === */
+        /* ... (autres styles inchangés) ... */
         #customText {
             position: absolute;
             bottom: 5vh;
@@ -89,7 +104,6 @@
             }
         }
 
-        /* === Styles pour le menu Hamburger === */
         #menu-container {
             position: fixed;
             top: 20px;
@@ -132,7 +146,6 @@
             transform: translateX(0);
         }
 
-        /* === Cercles animés === */
         .circleContainer {
             position: absolute;
             width: 40px;
@@ -176,7 +189,6 @@
             100% { transform: scale(1.5); opacity: 0; }
         }
 
-        /* === Texte overlay des GLB === */
         .text-overlay {
             position: absolute;
             top: 100%;
@@ -193,7 +205,6 @@
             margin-top: 5px;
         }
 
-        /* === Vidéo responsive === */
         #videoContainer {
             position: absolute;
             top: 50%; left: 50%;
@@ -223,7 +234,9 @@
 </head>
 <body>
     <div id="lottie-container"></div>
-    <canvas id="renderCanvas" class="hidden"></canvas> <div id="customText">
+    <canvas id="renderCanvas" class="hidden"></canvas>
+
+    <div id="customText">
         <br>
         
     </div>
@@ -249,6 +262,8 @@
         <iframe id="videoPlayer" allowfullscreen allow="autoplay; encrypted-media"></iframe>
     </div>
 
+    <button id="muteButton">Désactiver le son</button>
+
     <script src="https://cdn.babylonjs.com/babylon.js"></script>
     <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
     <script>
@@ -259,64 +274,61 @@
 
         const camera = new BABYLON.ArcRotateCamera("cam", Math.PI/2, Math.PI/2.5, 300, new BABYLON.Vector3(0,0,0), scene);
         camera.attachControl(canvas, true);
-        camera.inputs.clear(); // Désactiver temporairement les contrôles pour l'animation
+        camera.inputs.clear();
         
         new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0,1,0), scene);
 
-        let panoLoaded = false; // Variable pour suivre le chargement du panorama
+        let panoLoaded = false;
+        let videoDome; // Garder une référence au PhotoDome vidéo
 
-        // === Support WebP + fallback + gestion PNG/JPG ===
-        function supportsWebP(callback) {
-            const img = new Image();
-            img.onload = () => callback(img.width > 0 && img.height > 0);
-            img.onerror = () => callback(false);
-            img.src = "data:image/webp;base64,UklGRiIAAABXRUJQVlA4TCEAAAAvAAAAAA...";
-        }
+        // AJOUT : Nouvelle fonction pour créer un PhotoDome vidéo
+        function createVideoDome(videoUrl) {
+            // Créer un élément vidéo HTML5, il sera contrôlé par Babylon.js
+            const video = document.createElement("video");
+            video.id = "panoVideo";
+            video.loop = true; // La vidéo tourne en boucle
+            video.muted = true; // ESSENTIEL pour l'autoplay dans les navigateurs modernes
+            video.autoplay = true; // Démarrer la lecture automatiquement
+            video.playsInline = true; // Important pour iOS
+            video.src = videoUrl;
+            video.load(); // Charge la vidéo
 
-        function createPhotoDome(panoFile) {
-            const dome = new BABYLON.PhotoDome("panorama", panoFile + "?v=" + Date.now(), { resolution: 32, size: 1000 }, scene);
-            dome.imageMode = BABYLON.PhotoDome.MODE_MONOSCOPIC;
+            // Créer le PhotoDome avec la vidéo
+            videoDome = new BABYLON.VideoDome(
+                "videoDome",
+                video, // Passer l'élément vidéo directement
+                { resolution: 32, size: 1000 },
+                scene
+            );
+            videoDome.imageMode = BABYLON.VideoDome.MODE_MONOSCOPIC;
 
-            // Une fois que l'image du dôme est prête, marquer le panorama comme chargé
-            dome.onReady = () => {
+            // Une fois que la texture vidéo est prête (la vidéo est chargée et peut jouer)
+            videoDome.videoTexture.video.addEventListener('canplaythrough', () => {
                 panoLoaded = true;
-                // Si le Lottie est déjà terminé ou en train de se terminer, on peut démarrer la suite.
+                // Démarre la lecture si ce n'est pas déjà fait
+                videoDome.videoTexture.video.play().catch(e => console.log("Autoplay bloqué, la vidéo démarrera au premier clic utilisateur.", e));
                 checkAndStartPanoramaIntro();
-            };
+            }, { once: true }); // Écouter l'événement une seule fois
 
-            const domeMat = dome.mesh.material;
-
-            if (panoFile.endsWith(".jpg") || panoFile.endsWith(".jpeg")) {
-                domeMat.diffuseTexture.hasAlpha = false;
-                domeMat.useAlphaFromDiffuseTexture = false;
-                domeMat.transparencyMode = BABYLON.Material.MATERIAL_OPAQUE;
-            } else {
-                domeMat.diffuseTexture.hasAlpha = true;
-                domeMat.useAlphaFromDiffuseTexture = true;
-                domeMat.transparencyMode = BABYLON.Material.MATERIAL_ALPHABLEND;
-                domeMat.backFaceCulling = false;
-                domeMat.needDepthPrePass = true;
-            }
+            // S'assurer que le bouton mute/unmute est visible après le chargement
+            document.getElementById('muteButton').style.display = 'block';
         }
 
-        // Variable pour suivre l'état de l'animation Lottie
+        // Remplace l'ancienne fonction createPhotoDome par l'appel à createVideoDome
+        // Utilisez le chemin de votre vidéo MP4 ici
+        // IMPORTANT : Remplacez 'path/to/your/video.mp4' par le chemin réel de votre vidéo
+        createVideoDome('Composition 3.mp4'); 
+
         let lottieAnimationComplete = false; 
 
-        // Fonction pour vérifier si tout est prêt et démarrer l'intro du panorama
         function checkAndStartPanoramaIntro() {
             if (panoLoaded && lottieAnimationComplete) {
-                // Rendre le canvas visible juste avant l'animation de la caméra
                 canvas.classList.remove('hidden');
                 animateCameraSpin();
             }
         }
 
-        // Placez la logique de chargement du panorama au début
-        // pour qu'il commence à charger dès que possible
-        supportsWebP((isSupported) => {
-            const panoFile = isSupported ? "test7.webp" : "backgroundstatiqueexportepourleweb4.png";
-            createPhotoDome(panoFile);
-        });
+        // ... (le reste du code est inchangé) ...
 
         const circleMap = new Map();
         function createCircle(id, text) {
@@ -386,6 +398,10 @@
                     videoPlayer.src = embedUrl;
                     videoContainer.style.display = "block";
                     camera.detachControl(canvas);
+                    // AJOUT : Mettre en pause la vidéo panoramique lors de l'ouverture d'une vidéo externe
+                    if (videoDome && videoDome.videoTexture && videoDome.videoTexture.video) {
+                        videoDome.videoTexture.video.pause();
+                    }
                 });
             });
         });
@@ -394,6 +410,10 @@
             videoPlayer.src = "";
             videoContainer.style.display = "none";
             camera.attachControl(canvas, true);
+            // AJOUT : Reprendre la vidéo panoramique lors de la fermeture d'une vidéo externe
+            if (videoDome && videoDome.videoTexture && videoDome.videoTexture.video) {
+                videoDome.videoTexture.video.play().catch(e => console.log("La lecture de la vidéo panoramique a été reprise."));
+            }
         });
 
         engine.runRenderLoop(() => {
@@ -431,7 +451,6 @@
             customText.classList.toggle("zoomed");
         });
 
-        // Le code Lottie est le premier à s'exécuter
         document.addEventListener("DOMContentLoaded", () => {
             const lottieContainer = document.getElementById('lottie-container');
 
@@ -440,67 +459,71 @@
                 renderer: 'svg',
                 loop: false,
                 autoplay: true,
-                path: 'intro.json', // REMPLACEZ 'intro.json' par le nom de votre fichier JSON
+                path: 'intro.json',
                 rendererSettings: {
                     preserveAspectRatio: 'xMidYMid slice'
                 }
             });
 
             anim.addEventListener('complete', () => {
-                lottieAnimationComplete = true; // Marquer le Lottie comme terminé
-                lottieContainer.classList.add('fade-out'); // Déclencher le fondu CSS
+                lottieAnimationComplete = true;
+                lottieContainer.classList.add('fade-out');
                 
-                // Le `setTimeout` reste pour masquer complètement le conteneur Lottie
-                // mais le déclenchement de l'animation de caméra est déplacé.
                 setTimeout(() => {
                     lottieContainer.style.display = 'none';
                 }, 1000); 
 
-                // Immédiatement vérifier et démarrer l'animation si le panorama est prêt
                 checkAndStartPanoramaIntro();
             });
         });
 
-        // NOUVELLE FONCTION : Anime la caméra pour créer l'effet tournoyant
         function animateCameraSpin() {
-            // Définir la position initiale de la caméra (un peu en arrière pour l'effet)
-            camera.alpha -= Math.PI * 0.75; // Commence avec un décalage de rotation
-            camera.beta = Math.PI / 2.5; // Hauteur de la caméra
-            camera.radius = 300; // Distance par rapport au centre
+            camera.alpha -= Math.PI * 0.75;
+            camera.beta = Math.PI / 2.5;
+            camera.radius = 300;
 
-            // Créer une animation pour la rotation alpha (horizontal) de la caméra
             BABYLON.Animation.CreateAndStartAnimation(
-                "cameraSpin", // Nom de l'animation
-                camera,       // Cible de l'animation
-                "alpha",      // Propriété à animer
-                60,           // Images par seconde
-                120,          // Nombre total d'images (2 secondes à 60 fps)
-                camera.alpha, // Valeur de départ (rotation décalée)
-                camera.alpha + Math.PI * 0.75, // Valeur d'arrivée (retour à la position normale)
-                BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT, // Une seule fois
-                new BABYLON.CubicEase() // Type d'accélération pour un mouvement fluide
+                "cameraSpin",
+                camera,
+                "alpha",
+                60,
+                120,
+                camera.alpha,
+                camera.alpha + Math.PI * 0.75,
+                BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT,
+                new BABYLON.CubicEase()
             );
 
-            // Optionnel : Animer légèrement le zoom si vous voulez un effet d'approche
             BABYLON.Animation.CreateAndStartAnimation(
                 "cameraZoom",
                 camera,
                 "radius",
                 60,
                 120,
-                camera.radius * 1.2, // Commence un peu plus loin
-                camera.radius,       // Revient à la distance normale
+                camera.radius * 1.2,
+                camera.radius,
                 BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT,
                 new BABYLON.CubicEase()
             );
 
-            // Rattache les contrôles de la caméra une fois l'animation terminée
             setTimeout(() => {
                 camera.attachControl(canvas, true);
                 camera.inputs.add(new BABYLON.ArcRotateCameraPointersInput());
                 camera.inputs.add(new BABYLON.ArcRotateCameraKeyboardInput());
-            }, 2000); // Doit correspondre à la durée de l'animation (120 images / 60 fps = 2 secondes)
+            }, 2000);
         }
+
+        // AJOUT : Logique du bouton Muet/Non-muet
+        const muteButton = document.getElementById('muteButton');
+        let isMuted = true; // La vidéo commence muette
+
+        muteButton.addEventListener('click', () => {
+            if (videoDome && videoDome.videoTexture && videoDome.videoTexture.video) {
+                isMuted = !isMuted;
+                videoDome.videoTexture.video.muted = isMuted;
+                muteButton.textContent = isMuted ? "Activer le son" : "Désactiver le son";
+            }
+        });
     </script>
 </body>
 </html>
