@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8" />
+    <title>GLB + cercles + panorama + menu</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <link href="https://fonts.cdnfonts.com/css/apex-new" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lottie-web/5.10.2/lottie.min.js"></script>
+    <style>
+        html, body {
+            margin: 0;
+            overflow: hidden;
+            height: 100%;
+            touch-action: none;
+            background: none;
+        }
+        #renderCanvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+            touch-action: none;
+            background-color: transparent !important;
+        }
+
+        /* AJOUT : Le canvas est caché au début pour éviter un flash */
+        #renderCanvas.hidden {
+            visibility: hidden;
+        }
+
+        /* === Styles pour l'animation Lottie d'introduction === */
+        #lottie-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: white; /* ou la couleur de votre fond */
+            z-index: 9999; /* S'assure qu'il est au-dessus de tout */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: opacity 1s ease-in-out;
+        }
+        #lottie-container.fade-out {
+            opacity: 0;
+            /* Empêche les interactions pendant le fade-out */
+            pointer-events: none;
+        }
+
+        /* === Texte stylisé avec effet bounce === */
+        #customText {
+            position: absolute;
+            bottom: 5vh;
+            left: 50%;
+            transform: translateX(-50%);
+            font-family: 'Apex New', sans-serif;
+            font-size: clamp(24px, 4vw, 48px);
+            font-weight: heavy;
+            text-align: center;
+            color: black;
+            z-index: 2000;
+            line-height: 1.2;
+            background-color: transparent;
+            padding: 1em 2em;
+            border-radius: 0;
+            max-width: 90vw;
+            word-wrap: break-word;
+            cursor: pointer;
+            transition: font-size 0.3s ease-in-out;
+        }
+        #customText.zoomed {
+            font-size: clamp(36px, 6vw, 72px);
+            transform: translateX(-50%) scale(1.1);
+        }
+        @keyframes bounceIn {
+            0% {
+                opacity: 0;
+                transform: translate(-50%, -200%) scale(0.3);
+            }
+            60% {
+                opacity: 1;
+                transform: translate(-50%, 20%) scale(1.05);
+            }
+            80% {
+                transform: translate(-50%, -10%) scale(0.95);
+            }
+            100% {
+                transform: translate(-50%, 0) scale(1);
+            }
+        }
+
+        /* === Styles pour le menu Hamburger === */
+        #menu-container {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            z-index: 1001;
+        }
+        #hamburger-button {
+            width: 30px;
+            height: 25px;
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            background: none;
+            border: none;
+            padding: 0;
+        }
+        #hamburger-button .line {
+            width: 180%;
+            height: 5px;
+            background-color: #E5005B;
+            transition: all 0.3s ease-in-out;
+        }
+        #menu-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 250px;
+            height: 100%;
+            background-color: rgba(255, 255, 255, 0.9);
+            z-index: 1000;
+            transform: translateX(-100%);
+            transition: transform 0.3s ease-in-out;
+            padding: 60px 20px 20px;
+            box-shadow: 2px 0 5px rgba(0,0,0,0.5);
+            font-family: 'Apex New', sans-serif;
+            box-sizing: border-box;
+        }
+        #menu-overlay.open {
+            transform: translateX(0);
+        }
+
+        /* === Cercles animés === */
+        .circleContainer {
+            position: absolute;
+            width: 40px;
+            height: 40px;
+            z-index: 20;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            pointer-events: auto;
+        }
+        .circle {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            border: 2px solid red;
+            animation: pulse 2s infinite ease-in-out;
+        }
+        .circle::after {
+            content: "";
+            position: absolute;
+            width: 130%;
+            height: 130%;
+            border-radius: 50%;
+            border: 4px solid rgba(255, 0, 0, 0.7);
+            transform: scale(0);
+            animation: growFade 2s infinite ease-out;
+            animation-delay: 0.5s;
+        }
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        @keyframes growFade {
+            0% { transform: scale(0); opacity: 0.9; }
+            100% { transform: scale(1.5); opacity: 0; }
+        }
+
+        /* === Texte overlay des GLB === */
+        .text-overlay {
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            color: black;
+            background-color: rgba(255, 255, 255, 0.7);
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-family: 'Apex New', sans-serif;
+            font-size: 26px;
+            white-space: nowrap;
+            pointer-events: none;
+            margin-top: 5px;
+        }
+
+        /* === Vidéo responsive === */
+        #videoContainer {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 80%; max-width: 800px;
+            aspect-ratio: 16/9;
+            display: none;
+            z-index: 100;
+            background: black;
+        }
+        #videoContainer iframe {
+            width: 100%; height: 100%;
+            border: none;
+        }
+        #closeButton {
+            position: absolute;
+            top: -40px; right: 0;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            cursor: pointer;
+            font-size: 16px;
+            z-index: 101;
+        }
+    </style>
+</head>
+<body>
+    <div id="lottie-container"></div>
+    <canvas id="renderCanvas" class="hidden"></canvas> <div id="customText">
+        <br>
+        
+    </div>
+
+    <div id="menu-container">
+        <button id="hamburger-button">
+            <span class="line"></span>
+            <span class="line"></span>
+            <span class="line"></span>
+        </button>
+    </div>
+    <div id="menu-overlay">
+        <h2>Menu</h2>
+        <ul>
+            <li><a href="https://www.youtube.com/watch?v=Jgcb7hjdgaU">Vidéo "Bienvenue à UniCA"</a></li>
+            <li><a href="https://www.youtube.com/watch?v=lUU1G-6klpI">Vidéo "Compte Sésame"</a></li>
+            <li><a href="https://www.youtube.com/watch?v=SWIDVGO3Gg0">Vidéo "Intranet étudiant"</a></li>
+        </ul>
+    </div>
+    
+    <div id="videoContainer">
+        <button id="closeButton">Fermer</button>
+        <iframe id="videoPlayer" allowfullscreen allow="autoplay; encrypted-media"></iframe>
+    </div>
+
+    <script src="https://cdn.babylonjs.com/babylon.js"></script>
+    <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
+    <script>
+        const canvas = document.getElementById("renderCanvas");
+        const engine = new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true, alpha: true });
+        const scene = new BABYLON.Scene(engine);
+        scene.clearColor = new BABYLON.Color4(0, 0, 0, 0);
+
+        const camera = new BABYLON.ArcRotateCamera("cam", Math.PI/2, Math.PI/2.5, 300, new BABYLON.Vector3(0,0,0), scene);
+        camera.attachControl(canvas, true);
+        camera.inputs.clear(); // Désactiver temporairement les contrôles pour l'animation
+        
+        new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0,1,0), scene);
+
+        let panoLoaded = false; // Variable pour suivre le chargement du panorama
+
+        // === Support WebP + fallback + gestion PNG/JPG ===
+        function supportsWebP(callback) {
+            const img = new Image();
+            img.onload = () => callback(img.width > 0 && img.height > 0);
+            img.onerror = () => callback(false);
+            img.src = "data:image/webp;base64,UklGRiIAAABXRUJQVlA4TCEAAAAvAAAAAA...";
+        }
+
+        function createPhotoDome(panoFile) {
+            const dome = new BABYLON.PhotoDome("panorama", panoFile + "?v=" + Date.now(), { resolution: 32, size: 1000 }, scene);
+            dome.imageMode = BABYLON.PhotoDome.MODE_MONOSCOPIC;
+
+            // Une fois que l'image du dôme est prête, marquer le panorama comme chargé
+            dome.onReady = () => {
+                panoLoaded = true;
+                // Si le Lottie est déjà terminé ou en train de se terminer, on peut démarrer la suite.
+                checkAndStartPanoramaIntro();
+            };
+
+            const domeMat = dome.mesh.material;
+
+            if (panoFile.endsWith(".jpg") || panoFile.endsWith(".jpeg")) {
+                domeMat.diffuseTexture.hasAlpha = false;
+                domeMat.useAlphaFromDiffuseTexture = false;
+                domeMat.transparencyMode = BABYLON.Material.MATERIAL_OPAQUE;
+            } else {
+                domeMat.diffuseTexture.hasAlpha = true;
+                domeMat.useAlphaFromDiffuseTexture = true;
+                domeMat.transparencyMode = BABYLON.Material.MATERIAL_ALPHABLEND;
+                domeMat.backFaceCulling = false;
+                domeMat.needDepthPrePass = true;
+            }
+        }
+
+        // Variable pour suivre l'état de l'animation Lottie
+        let lottieAnimationComplete = false; 
+
+        // Fonction pour vérifier si tout est prêt et démarrer l'intro du panorama
+        function checkAndStartPanoramaIntro() {
+            if (panoLoaded && lottieAnimationComplete) {
+                // Rendre le canvas visible juste avant l'animation de la caméra
+                canvas.classList.remove('hidden');
+                animateCameraSpin();
+            }
+        }
+
+        // Placez la logique de chargement du panorama au début
+        // pour qu'il commence à charger dès que possible
+        supportsWebP((isSupported) => {
+            const panoFile = isSupported ? "test7.webp" : "backgroundstatiqueexportepourleweb4.png";
+            createPhotoDome(panoFile);
+        });
+
+        const circleMap = new Map();
+        function createCircle(id, text) {
+            const container = document.createElement("div");
+            container.id = "circle_" + id;
+            container.classList.add("circleContainer");
+            container.innerHTML = `<div class="circle"></div><div class="text-overlay">${text}</div>`;
+            document.body.appendChild(container);
+            return container;
+        }
+
+        const glbFiles = ["agenda2.glb", "socleetoiletoque2.glb", "coffre2.glb", "livres2.glb"];
+        const videoUrls = [
+            "https://www.youtube.com/watch?v=lUU1G-6klpI",
+            "https://www.youtube.com/watch?v=SWIDVGO3Gg0",
+            "https://www.youtube.com/watch?v=Jgcb7hjdgaU",
+            "https://www.youtube.com/watch?v=T6CI_hIbJIA"
+        ];
+        const customAngles = [
+            0.5 * (Math.PI / 180),
+            302 * (Math.PI / 180),
+            112.5 * (Math.PI / 180),
+            214 * (Math.PI / 180)
+        ];
+        const radius = 400;
+
+        const circleLabels = [
+            "Bienvenue",
+            "Compte Sésame",
+            "Intranet étudiant",
+            "Moodle"
+        ];
+
+        const videoContainer = document.getElementById("videoContainer");
+        const videoPlayer = document.getElementById("videoPlayer");
+        const closeButton = document.getElementById("closeButton");
+
+        function getEmbedUrl(url) {
+            const videoId = url.split('v=')[1];
+            return `https://www.youtube.com/embed/${videoId}?modestbranding=1&rel=0&playsinline=1&autoplay=1`;
+        }
+
+        glbFiles.forEach((file, index) => {
+            BABYLON.SceneLoader.ImportMesh("", "./", file, scene, function(meshes, particleSystems, skeletons, animationGroups) {
+                if (!meshes || meshes.length === 0) {
+                    console.warn(`Aucun mesh trouvé dans ${file}.`);
+                    return;
+                }
+                const mesh = meshes[0];
+                if (animationGroups) {
+                    animationGroups.forEach(ag => ag.start(true));
+                }
+                mesh.scaling = new BABYLON.Vector3(50, 50, 50);
+
+                const pivot = new BABYLON.TransformNode("pivot_" + index, scene);
+                mesh.position.z = radius;
+                if (customAngles[index] !== undefined) {
+                    pivot.rotation.y = customAngles[index];
+                }
+                mesh.parent = pivot;
+
+                const circle = createCircle(index + 1, circleLabels[index]);
+                circleMap.set(mesh, circle);
+
+                circle.addEventListener('click', () => {
+                    const embedUrl = getEmbedUrl(videoUrls[index]);
+                    videoPlayer.src = embedUrl;
+                    videoContainer.style.display = "block";
+                    camera.detachControl(canvas);
+                });
+            });
+        });
+
+        closeButton.addEventListener('click', () => {
+            videoPlayer.src = "";
+            videoContainer.style.display = "none";
+            camera.attachControl(canvas, true);
+        });
+
+        engine.runRenderLoop(() => {
+            scene.render();
+            circleMap.forEach((circle, mesh) => {
+                if (!mesh) return;
+                const worldCenter = mesh.getBoundingInfo().boundingSphere.centerWorld;
+                const pos = BABYLON.Vector3.Project(
+                    worldCenter,
+                    BABYLON.Matrix.IdentityReadOnly,
+                    scene.getTransformMatrix(),
+                    camera.viewport.toGlobal(engine.getRenderWidth(), engine.getRenderHeight())
+                );
+                if (pos.z >= 0 && pos.z <= 1) {
+                    circle.style.left = `${pos.x}px`;
+                    circle.style.top = `${pos.y}px`;
+                    circle.style.transform = "translate(-50%, -50%)";
+                    circle.style.visibility = "visible";
+                } else {
+                    circle.style.visibility = "hidden";
+                }
+            });
+        });
+
+        window.addEventListener("resize", () => engine.resize());
+
+        const hamburgerButton = document.getElementById('hamburger-button');
+        const menuOverlay = document.getElementById('menu-overlay');
+        hamburgerButton.addEventListener('click', () => {
+            menuOverlay.classList.toggle('open');
+        });
+
+        const customText = document.getElementById("customText");
+        customText.addEventListener("click", () => {
+            customText.classList.toggle("zoomed");
+        });
+
+        // Le code Lottie est le premier à s'exécuter
+        document.addEventListener("DOMContentLoaded", () => {
+            const lottieContainer = document.getElementById('lottie-container');
+
+            const anim = lottie.loadAnimation({
+                container: lottieContainer,
+                renderer: 'svg',
+                loop: false,
+                autoplay: true,
+                path: 'intro.json', // REMPLACEZ 'intro.json' par le nom de votre fichier JSON
+                rendererSettings: {
+                    preserveAspectRatio: 'xMidYMid slice'
+                }
+            });
+
+            anim.addEventListener('complete', () => {
+                lottieAnimationComplete = true; // Marquer le Lottie comme terminé
+                lottieContainer.classList.add('fade-out'); // Déclencher le fondu CSS
+                
+                // Le `setTimeout` reste pour masquer complètement le conteneur Lottie
+                // mais le déclenchement de l'animation de caméra est déplacé.
+                setTimeout(() => {
+                    lottieContainer.style.display = 'none';
+                }, 1000); 
+
+                // Immédiatement vérifier et démarrer l'animation si le panorama est prêt
+                checkAndStartPanoramaIntro();
+            });
+        });
+
+        // NOUVELLE FONCTION : Anime la caméra pour créer l'effet tournoyant
+        function animateCameraSpin() {
+            // Définir la position initiale de la caméra (un peu en arrière pour l'effet)
+            camera.alpha -= Math.PI * 0.75; // Commence avec un décalage de rotation
+            camera.beta = Math.PI / 2.5; // Hauteur de la caméra
+            camera.radius = 300; // Distance par rapport au centre
+
+            // Créer une animation pour la rotation alpha (horizontal) de la caméra
+            BABYLON.Animation.CreateAndStartAnimation(
+                "cameraSpin", // Nom de l'animation
+                camera,       // Cible de l'animation
+                "alpha",      // Propriété à animer
+                60,           // Images par seconde
+                120,          // Nombre total d'images (2 secondes à 60 fps)
+                camera.alpha, // Valeur de départ (rotation décalée)
+                camera.alpha + Math.PI * 0.75, // Valeur d'arrivée (retour à la position normale)
+                BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT, // Une seule fois
+                new BABYLON.CubicEase() // Type d'accélération pour un mouvement fluide
+            );
+
+            // Optionnel : Animer légèrement le zoom si vous voulez un effet d'approche
+            BABYLON.Animation.CreateAndStartAnimation(
+                "cameraZoom",
+                camera,
+                "radius",
+                60,
+                120,
+                camera.radius * 1.2, // Commence un peu plus loin
+                camera.radius,       // Revient à la distance normale
+                BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT,
+                new BABYLON.CubicEase()
+            );
+
+            // Rattache les contrôles de la caméra une fois l'animation terminée
+            setTimeout(() => {
+                camera.attachControl(canvas, true);
+                camera.inputs.add(new BABYLON.ArcRotateCameraPointersInput());
+                camera.inputs.add(new BABYLON.ArcRotateCameraKeyboardInput());
+            }, 2000); // Doit correspondre à la durée de l'animation (120 images / 60 fps = 2 secondes)
+        }
+    </script>
+</body>
+</html>
